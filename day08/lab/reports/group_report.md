@@ -7,12 +7,12 @@
 |-----|---------|-------|
 | Phan Thanh Sang | Tech Lead | N/A |
 | Đỗ Minh Khiêm | Indexing Owner | N/A |
-| Trần Tiến Dũng | Retrieval Owner (Dense & Prompt) | N/A |
-| Ngô Hải Văn | Retrieval Owner (Hybrid & Rerank) | N/A |
-| Trần Đình Minh Vương | Eval & Docs Owner | N/A |
+| Trần Tiến Dũng | Retrieval Owner (Dense & Prompt) |tiendungtran2005@gmail.com |
+| Ngô Hải Văn | Retrieval Owner (Hybrid & Rerank) |van.nh120802@gmail.com|
+| Trần Đình Minh Vương | Eval & Docs Owner |vuongsky55.cv@gmail.com|
 
 **Ngày nộp:** 2026-04-13  
-**Repo:** https://github.com/loversky02/Lecture-Day-08-09-10  
+**Repo:** https://github.com/hvan128/team62-lecture-Day-08-09-10
 **Độ dài:** ~850 từ
 
 ---
