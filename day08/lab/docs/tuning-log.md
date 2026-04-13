@@ -7,35 +7,35 @@
 
 ## Baseline (Sprint 2)
 
-**Ngày:** ___________  
+**Ngày:** 2026-04-13  
 **Config:**
 ```
 retrieval_mode = "dense"
-chunk_size = _____ tokens
-overlap = _____ tokens
+chunk_size = 400 tokens
+overlap = 80 tokens
 top_k_search = 10
 top_k_select = 3
 use_rerank = False
-llm_model = _____
+llm_model = gpt-4o-mini (fallback: gemini-1.5-flash)
 ```
 
 **Scorecard Baseline:**
 | Metric | Average Score |
 |--------|--------------|
-| Faithfulness | ? /5 |
-| Answer Relevance | ? /5 |
-| Context Recall | ? /5 |
-| Completeness | ? /5 |
+| Faithfulness | 5.00 /5 |
+| Answer Relevance | 2.00 /5 |
+| Context Recall | 0.00 /5 |
+| Completeness | 1.00 /5 |
 
 **Câu hỏi yếu nhất (điểm thấp):**
-> TODO: Liệt kê 2-3 câu hỏi có điểm thấp nhất và lý do tại sao.
-> Ví dụ: "q07 (Approval Matrix) - context recall = 1/5 vì dense bỏ lỡ alias."
+q01, q02, q03 (và hầu như toàn bộ tập test) có completeness thấp vì chưa build index `rag_lab`, nên retriever không có dữ liệu để lấy context.
+Kết quả baseline hiện tại chủ yếu phản ánh trạng thái "abstain an toàn" chứ chưa phản ánh chất lượng retrieval thật.
 
 **Giả thuyết nguyên nhân (Error Tree):**
 - [ ] Indexing: Chunking cắt giữa điều khoản
 - [ ] Indexing: Metadata thiếu effective_date
-- [ ] Retrieval: Dense bỏ lỡ exact keyword / alias
-- [ ] Retrieval: Top-k quá ít → thiếu evidence
+- [x] Retrieval: Dense bỏ lỡ exact keyword / alias
+- [x] Retrieval: Top-k quá ít → thiếu evidence
 - [ ] Generation: Prompt không đủ grounding
 - [ ] Generation: Context quá dài → lost in the middle
 
@@ -43,34 +43,33 @@ llm_model = _____
 
 ## Variant 1 (Sprint 3)
 
-**Ngày:** ___________  
-**Biến thay đổi:** ___________  
+**Ngày:** 2026-04-13  
+**Biến thay đổi:** Retrieval strategy (Dense -> Hybrid)  
 **Lý do chọn biến này:**
-> TODO: Giải thích theo evidence từ baseline results.
-> Ví dụ: "Chọn hybrid vì q07 (alias query) và q09 (mã lỗi ERR-403) đều thất bại với dense.
-> Corpus có cả ngôn ngữ tự nhiên (policy) lẫn tên riêng/mã lỗi (ticket code, SLA label)."
+Corpus chứa nhiều từ khóa đặc thù (P1, Level 3, Approval Matrix, ERR-403) bên cạnh mô tả ngôn ngữ tự nhiên.
+Hybrid (Dense + BM25) giúp tăng khả năng bắt exact match và alias, nhất là cho các câu hỏi dạng mã lỗi/tên cũ tài liệu.
 
 **Config thay đổi:**
 ```
-retrieval_mode = "hybrid"   # hoặc biến khác
+retrieval_mode = "hybrid"
 # Các tham số còn lại giữ nguyên như baseline
 ```
 
 **Scorecard Variant 1:**
 | Metric | Baseline | Variant 1 | Delta |
 |--------|----------|-----------|-------|
-| Faithfulness | ?/5 | ?/5 | +/- |
-| Answer Relevance | ?/5 | ?/5 | +/- |
-| Context Recall | ?/5 | ?/5 | +/- |
-| Completeness | ?/5 | ?/5 | +/- |
+| Faithfulness | 5.00/5 | TODO | TODO |
+| Answer Relevance | 2.00/5 | TODO | TODO |
+| Context Recall | 0.00/5 | TODO | TODO |
+| Completeness | 1.00/5 | TODO | TODO |
 
 **Nhận xét:**
-> TODO: Variant 1 cải thiện ở câu nào? Tại sao?
-> Có câu nào kém hơn không? Tại sao?
+Pipeline variant đã code xong (sparse BM25 + RRF hybrid + rerank fallback).
+Cần chạy lại sau khi build index để có so sánh thực nghiệm chính xác theo từng câu.
 
 **Kết luận:**
-> TODO: Variant 1 có tốt hơn baseline không?
-> Bằng chứng là gì? (điểm số, câu hỏi cụ thể)
+Chưa kết luận định lượng vì baseline hiện tại chạy khi chưa có index.
+Bước kế tiếp là build index và chạy đủ A/B để xác nhận delta trên context recall và completeness.
 
 ---
 
@@ -97,10 +96,10 @@ retrieval_mode = "hybrid"   # hoặc biến khác
 > TODO (Sprint 4): Điền sau khi hoàn thành evaluation.
 
 1. **Lỗi phổ biến nhất trong pipeline này là gì?**
-   > _____________
+   > Build index chưa được chạy trước retrieval, khiến toàn bộ pipeline rơi vào chế độ abstain.
 
 2. **Biến nào có tác động lớn nhất tới chất lượng?**
-   > _____________
+   > Retrieval strategy (đặc biệt hybrid cho câu hỏi chứa alias/keyword).
 
 3. **Nếu có thêm 1 giờ, nhóm sẽ thử gì tiếp theo?**
-   > _____________
+   > Bật cross-encoder rerank để lọc top-k cuối và giảm chunk nhiễu trong prompt.

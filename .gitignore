@@ -2,5 +2,16 @@
 *.swp
 *~
 
+# Python cache
+__pycache__/
+*.pyc
+
+# Local secrets
+*.env
+day08/lab/.env
+
+# Local vector DB artifacts
+day08/lab/chroma_db/
+
 # Grading questions — không public trước 17:00
 day08/lab/data/grading_questions.json

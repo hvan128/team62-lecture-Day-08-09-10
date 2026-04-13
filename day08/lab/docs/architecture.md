@@ -18,7 +18,9 @@
 ```
 
 **Mô tả ngắn gọn:**
-> TODO: Mô tả hệ thống trong 2-3 câu. Nhóm xây gì? Cho ai dùng? Giải quyết vấn đề gì?
+Nhóm xây một trợ lý hỏi đáp nội bộ cho CS + IT Helpdesk dựa trên mô hình RAG.
+Pipeline nhận câu hỏi nghiệp vụ, truy xuất bằng chứng từ policy/SLA/SOP nội bộ, rồi sinh câu trả lời ngắn gọn kèm citation nguồn.
+Thiết kế ưu tiên grounded answer (evidence-only) để giảm hallucination khi dùng trong môi trường vận hành.
 
 ---
 
@@ -27,22 +29,23 @@
 ### Tài liệu được index
 | File | Nguồn | Department | Số chunk |
 |------|-------|-----------|---------|
-| `policy_refund_v4.txt` | policy/refund-v4.pdf | CS | TODO |
-| `sla_p1_2026.txt` | support/sla-p1-2026.pdf | IT | TODO |
-| `access_control_sop.txt` | it/access-control-sop.md | IT Security | TODO |
-| `it_helpdesk_faq.txt` | support/helpdesk-faq.md | IT | TODO |
-| `hr_leave_policy.txt` | hr/leave-policy-2026.pdf | HR | TODO |
+| `policy_refund_v4.txt` | policy/refund-v4.pdf | CS | tự động khi chạy `build_index()` |
+| `sla_p1_2026.txt` | support/sla-p1-2026.pdf | IT | tự động khi chạy `build_index()` |
+| `access_control_sop.txt` | it/access-control-sop.md | IT Security | tự động khi chạy `build_index()` |
+| `it_helpdesk_faq.txt` | support/helpdesk-faq.md | IT | tự động khi chạy `build_index()` |
+| `hr_leave_policy.txt` | hr/leave-policy-2026.pdf | HR | tự động khi chạy `build_index()` |
 
 ### Quyết định chunking
 | Tham số | Giá trị | Lý do |
 |---------|---------|-------|
-| Chunk size | TODO tokens | TODO |
-| Overlap | TODO tokens | TODO |
-| Chunking strategy | Heading-based / paragraph-based | TODO |
+| Chunk size | 400 tokens (~1600 chars) | Cân bằng giữa đủ ngữ cảnh và tránh context quá dài |
+| Overlap | 80 tokens (~320 chars) | Giảm mất mạch thông tin ở ranh giới chunk |
+| Chunking strategy | Heading-based + paragraph-first | Bám cấu trúc văn bản tự nhiên, giảm cắt giữa điều khoản |
 | Metadata fields | source, section, effective_date, department, access | Phục vụ filter, freshness, citation |
 
 ### Embedding model
 - **Model**: TODO (OpenAI text-embedding-3-small / paraphrase-multilingual-MiniLM-L12-v2)
+- **Model**: OpenAI `text-embedding-3-small` (nếu có API key) hoặc local `paraphrase-multilingual-MiniLM-L12-v2` (fallback)
 - **Vector store**: ChromaDB (PersistentClient)
 - **Similarity metric**: Cosine
 
@@ -61,15 +64,16 @@
 ### Variant (Sprint 3)
 | Tham số | Giá trị | Thay đổi so với baseline |
 |---------|---------|------------------------|
-| Strategy | TODO (hybrid / dense) | TODO |
-| Top-k search | TODO | TODO |
-| Top-k select | TODO | TODO |
-| Rerank | TODO (cross-encoder / MMR) | TODO |
-| Query transform | TODO (expansion / HyDE / decomposition) | TODO |
+| Strategy | Hybrid (Dense + Sparse/BM25) | Thêm sparse branch + RRF fusion |
+| Top-k search | 10 | Giữ nguyên để A/B fair |
+| Top-k select | 3 | Giữ nguyên để A/B fair |
+| Rerank | Lexical rerank (mặc định), optional cross-encoder | Có thể bật `RERANK_WITH_CROSS_ENCODER=1` |
+| Query transform | Chưa bật mặc định | Tránh đổi quá nhiều biến cùng lúc |
 
 **Lý do chọn variant này:**
-> TODO: Giải thích tại sao chọn biến này để tune.
-> Ví dụ: "Chọn hybrid vì corpus có cả câu tự nhiên (policy) lẫn mã lỗi và tên chuyên ngành (SLA ticket P1, ERR-403)."
+Chọn hybrid vì bộ tài liệu chứa cả ngôn ngữ tự nhiên (policy/HR) và keyword chuyên biệt (P1, Level 3, mã lỗi, alias tài liệu).
+Dense retrieval tốt cho ngữ nghĩa, nhưng dễ hụt exact-term/alias; BM25 bù vào phần keyword exact match.
+Kết hợp bằng RRF giúp tăng recall mà vẫn ổn định top-k context cho grounded prompt.
 
 ---
 
@@ -96,7 +100,7 @@ Answer:
 ### LLM Configuration
 | Tham số | Giá trị |
 |---------|---------|
-| Model | TODO (gpt-4o-mini / gemini-1.5-flash) |
+| Model | `gpt-4o-mini` (OpenAI) hoặc `gemini-1.5-flash` (Gemini) |
 | Temperature | 0 (để output ổn định cho eval) |
 | Max tokens | 512 |
 
