@@ -6,7 +6,7 @@
 | Tên | Vai trò | Email |
 |-----|---------|-------|
 | Phan Thanh Sang | Tech Lead | sang.phan2409@gmail.com |
-| Đỗ Minh Khiêm | Indexing Owner | N/A |
+| Đỗ Minh Khiêm | Indexing Owner | dokhiem562@gmail.com |
 | Trần Tiến Dũng | Retrieval Owner (Dense & Prompt) | tiendungtran2005@gmail.com |
 | Ngô Hải Văn | Retrieval Owner (Hybrid & Rerank) | van.nh120802@gmail.com |
 | Trần Đình Minh Vương | Eval & Docs Owner | vuongsky55.cv@gmail.com |
