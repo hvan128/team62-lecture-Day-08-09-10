@@ -79,11 +79,24 @@ Baseline dense vẫn ổn định hơn về faithfulness.
 
 ## Variant 2 (nếu có thời gian)
 
-**Biến thay đổi:** ___________  
+**Biến thay đổi:** Hybrid weighting (tăng dense weight, giảm sparse weight)  
 **Config:**
 ```
-# TODO
+retrieval_mode = "hybrid"
+dense_weight = 0.8
+sparse_weight = 0.2
+top_k_search = 10
+top_k_select = 3
+use_rerank = False
 ```
+
+**Trạng thái:** Chưa chạy thực nghiệm do giới hạn thời gian sprint; giữ lại như hướng tối ưu tiếp theo để giảm nhiễu BM25 nhưng vẫn giữ lợi ích keyword match.
+
+**Tiêu chí thành công khi chạy Variant 2:**
+- Faithfulness >= 4.50 (ít nhất bằng baseline).
+- Relevance >= 4.40 (không thấp hơn Variant 1).
+- Không xuất hiện regression nghiêm trọng ở nhóm Access Control (`q03`, `q07`).
+- `q09` vẫn giữ khả năng xử lý câu thiếu context (không hallucinate).
 
 **Scorecard Variant 2:**
 | Metric | Baseline | Variant 1 | Variant 2 | Best |
@@ -97,11 +110,20 @@ Baseline dense vẫn ổn định hơn về faithfulness.
 
 ## Tóm tắt học được
 
-1. **Lỗi phổ biến nhất trong pipeline này là gì?**
-   > Misalignment giữa alias/keyword và semantic intent trong Hybrid retrieval làm giảm faithfulness ở một số câu.
+1. **Lỗi phổ biến nhất trong pipeline này là gì?**  
+   > Lỗi phổ biến nhất là *retrieval noise* khi dùng hybrid: BM25 kéo thêm chunk chứa keyword đúng nhưng ngữ cảnh không thật sự khớp ý hỏi. Dấu hiệu rõ nhất là `q07` bị giảm faithfulness mạnh (baseline 5 -> variant 2), dù câu trả lời nhìn bề ngoài có vẻ liên quan.
 
-2. **Biến nào có tác động lớn nhất tới chất lượng?**
-   > Retrieval strategy (Dense vs Hybrid) có tác động lớn nhất, rõ nhất ở q07 và q09.
+2. **Biến nào có tác động lớn nhất tới chất lượng?**  
+   > Biến có tác động lớn nhất là **retrieval strategy** (Dense vs Hybrid). Chỉ đổi biến này đã tạo trade-off rõ: Faithfulness giảm (4.50 -> 4.30) nhưng Relevance/Completeness tăng nhẹ (4.30 -> 4.40 và 4.10 -> 4.20), trong khi Context Recall giữ nguyên 5.00.
 
-3. **Nếu có thêm 1 giờ, nhóm sẽ thử gì tiếp theo?**
-   > Bật cross-encoder rerank + giảm BM25 weight để giữ lợi thế recall mà không làm giảm faithfulness.
+3. **Nếu có thêm 1 giờ, nhóm sẽ thử gì tiếp theo?**  
+   > Nhóm sẽ chạy Variant 2 theo đúng A/B rule: giữ hybrid nhưng giảm BM25 influence (`dense_weight=0.8`, `sparse_weight=0.2`), sau đó mới thử bật rerank. Mục tiêu là giữ lợi ích keyword/alias (đặc biệt cho `q09`) nhưng tránh tụt faithfulness ở nhóm Access Control (`q03`, `q07`).
+
+---
+
+## Quyết định chốt cho demo/nộp bài
+
+- **Config chốt hiện tại:** Baseline Dense (`retrieval_mode="dense"`, `top_k_search=10`, `top_k_select=3`, `use_rerank=False`).
+- **Lý do:** Baseline cho faithfulness ổn định nhất trên bộ 10 câu, đồng thời context recall đạt mức tối đa.
+- **Hybrid được giữ như hướng tối ưu tiếp theo:** ưu tiên thử `dense_weight=0.8 / sparse_weight=0.2` và chỉ bật rerank sau khi kiểm soát được nhiễu retrieval.
+- **Ưu tiên cải thiện kế tiếp:** tăng completeness cho câu policy đặc biệt (VIP/alias) mà không làm giảm grounding.

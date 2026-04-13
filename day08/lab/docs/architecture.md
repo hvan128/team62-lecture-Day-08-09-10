@@ -122,9 +122,9 @@ Answer:
 | Metric | Baseline | Variant | Delta |
 |--------|----------|---------|-------|
 | Faithfulness | 4.50/5 | 4.30/5 | -0.20 |
-| Answer Relevance | 4.30/5 | 4.50/5 | +0.20 |
+| Answer Relevance | 4.30/5 | 4.40/5 | +0.10 |
 | Context Recall | 5.00/5 | 5.00/5 | 0.00 |
-| Completeness | 4.00/5 | 4.20/5 | +0.20 |
+| Completeness | 4.10/5 | 4.20/5 | +0.10 |
 
 **Kết luận:** Baseline (Dense) ổn định hơn về faithfulness, trong khi Variant (Hybrid) cải thiện relevance/completeness ở một số câu hỏi thiếu ngữ cảnh đặc thù. Hybrid tạo trade-off, chưa đủ tốt để thay baseline làm cấu hình mặc định.
 
