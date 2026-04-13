@@ -76,10 +76,36 @@ def retrieve_dense(query: str, top_k: int = TOP_K_SEARCH) -> List[Dict[str, Any]
         # Lưu ý: distances trong ChromaDB cosine = 1 - similarity
         # Score = 1 - distance
     """
-    raise NotImplementedError(
-        "TODO Sprint 2: Implement retrieve_dense().\n"
-        "Tham khảo comment trong hàm để biết cách query ChromaDB."
+    from index import get_embedding
+
+    try:
+        collection = _get_collection(auto_build=True)
+    except Exception as exc:
+        print(f"[retrieve_dense] Không mở được collection rag_lab: {exc}")
+        return []
+
+    query_embedding = get_embedding(query)
+    results = collection.query(
+        query_embeddings=[query_embedding],
+        n_results=top_k,
+        include=["documents", "metadatas", "distances"],
     )
+
+    documents = results.get("documents", [[]])[0]
+    metadatas = results.get("metadatas", [[]])[0]
+    distances = results.get("distances", [[]])[0]
+
+    output = []
+    for doc, meta, dist in zip(documents, metadatas, distances):
+        score = 1 - float(dist) if dist is not None else 0.0
+        output.append({
+            "text": doc,
+            "metadata": meta or {},
+            "score": score,
+        })
+
+    output.sort(key=lambda x: x.get("score", 0), reverse=True)
+    return output
 
 
 # =============================================================================
@@ -228,99 +254,61 @@ def transform_query(query: str, strategy: str = "expansion") -> List[str]:
     # Tạm thời trả về query gốc
     return [query]
 
-
 # =============================================================================
-# GENERATION — GROUNDED ANSWER FUNCTION
+# MAIN — Demo và Test
 # =============================================================================
 
-def build_context_block(chunks: List[Dict[str, Any]]) -> str:
-    """
-    Đóng gói danh sách chunks thành context block để đưa vào prompt.
+if __name__ == "__main__":
+    print("=" * 60)
+    print("Sprint 2 + 3: RAG Answer Pipeline")
+    print("=" * 60)
 
-    Format: structured snippets với source, section, score (từ slide).
-    Mỗi chunk có số thứ tự [1], [2], ... để model dễ trích dẫn.
-    """
-    context_parts = []
-    for i, chunk in enumerate(chunks, 1):
-        meta = chunk.get("metadata", {})
-        source = meta.get("source", "unknown")
-        section = meta.get("section", "")
-        score = chunk.get("score", 0)
-        text = chunk.get("text", "")
+    # Test queries từ data/test_questions.json
+    test_queries = [
+        "SLA xử lý ticket P1 là bao lâu?",
+        "Khách hàng có thể yêu cầu hoàn tiền trong bao nhiêu ngày?",
+        "Ai phải phê duyệt để cấp quyền Level 3?",
+        "ERR-403-AUTH là lỗi gì?",  # Query không có trong docs → kiểm tra abstain
+    ]
 
-        # TODO: Tùy chỉnh format nếu muốn (thêm effective_date, department, ...)
-        header = f"[{i}] {source}"
-        if section:
-            header += f" | {section}"
-        if score > 0:
-            header += f" | score={score:.2f}"
+    print("\n--- Sprint 2: Test Baseline (Dense) ---")
+    for query in test_queries:
+        print(f"\nQuery: {query}")
+        try:
+            result = rag_answer(query, retrieval_mode="dense", verbose=True)
+            print(f"Answer: {result['answer']}")
+            print(f"Sources: {result['sources']}")
+        except NotImplementedError:
+            print("Chưa implement — hoàn thành TODO trong retrieve_dense() và call_llm() trước.")
+        except Exception as e:
+            print(f"Lỗi: {e}")
 
-        context_parts.append(f"{header}\n{text}")
+    # Uncomment sau khi Sprint 3 hoàn thành:
+    # print("\n--- Sprint 3: So sánh strategies ---")
+    # compare_retrieval_strategies("Approval Matrix để cấp quyền là tài liệu nào?")
+    # compare_retrieval_strategies("ERR-403-AUTH")
 
-    return "\n\n".join(context_parts)
+    print("\n\nViệc cần làm Sprint 2:")
+    print("  1. Implement retrieve_dense() — query ChromaDB")
+    print("  2. Implement call_llm() — gọi OpenAI hoặc Gemini")
+    print("  3. Chạy rag_answer() với 3+ test queries")
+    print("  4. Verify: output có citation không? Câu không có docs → abstain không?")
 
+def _get_collection(auto_build: bool = True):
+    import chromadb
+    from index import CHROMA_DB_DIR, build_index
 
-def build_grounded_prompt(query: str, context_block: str) -> str:
-    """
-    Xây dựng grounded prompt theo 4 quy tắc từ slide:
-    1. Evidence-only: Chỉ trả lời từ retrieved context
-    2. Abstain: Thiếu context thì nói không đủ dữ liệu
-    3. Citation: Gắn source/section khi có thể
-    4. Short, clear, stable: Output ngắn, rõ, nhất quán
+    client = chromadb.PersistentClient(path=str(CHROMA_DB_DIR))
 
-    TODO Sprint 2:
-    Đây là prompt baseline. Trong Sprint 3, bạn có thể:
-    - Thêm hướng dẫn về format output (JSON, bullet points)
-    - Thêm ngôn ngữ phản hồi (tiếng Việt vs tiếng Anh)
-    - Điều chỉnh tone phù hợp với use case (CS helpdesk, IT support)
-    """
-    prompt = f"""Answer only from the retrieved context below.
-If the context is insufficient to answer the question, say you do not know and do not make up information.
-Cite the source field (in brackets like [1]) when possible.
-Keep your answer short, clear, and factual.
-Respond in the same language as the question.
+    try:
+        return client.get_collection("rag_lab")
+    except Exception as exc:
+        if not auto_build:
+            raise exc
 
-Question: {query}
-
-Context:
-{context_block}
-
-Answer:"""
-    return prompt
-
-
-def call_llm(prompt: str) -> str:
-    """
-    Gọi LLM để sinh câu trả lời.
-
-    TODO Sprint 2:
-    Chọn một trong hai:
-
-    Option A — OpenAI (cần OPENAI_API_KEY):
-        from openai import OpenAI
-        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        response = client.chat.completions.create(
-            model=LLM_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0,     # temperature=0 để output ổn định, dễ đánh giá
-            max_tokens=512,
-        )
-        return response.choices[0].message.content
-
-    Option B — Google Gemini (cần GOOGLE_API_KEY):
-        import google.generativeai as genai
-        genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        response = model.generate_content(prompt)
-        return response.text
-
-    Lưu ý: Dùng temperature=0 hoặc thấp để output ổn định cho evaluation.
-    """
-    raise NotImplementedError(
-        "TODO Sprint 2: Implement call_llm().\n"
-        "Chọn Option A (OpenAI) hoặc Option B (Gemini) trong TODO comment."
-    )
-
+        print("[rag_answer] Chưa có collection rag_lab, đang tự build index...")
+        build_index()
+        return client.get_collection("rag_lab")
 
 def rag_answer(
     query: str,
@@ -385,6 +373,15 @@ def rag_answer(
         for i, c in enumerate(candidates[:3]):
             print(f"  [{i+1}] score={c.get('score', 0):.3f} | {c['metadata'].get('source', '?')}")
 
+    if not candidates:
+        return {
+            "query": query,
+            "answer": "Không đủ dữ liệu trong tài liệu hiện có để trả lời câu hỏi này.",
+            "sources": [],
+            "chunks_used": [],
+            "config": config,
+        }
+
     # --- Bước 2: Rerank (optional) ---
     if use_rerank:
         candidates = rerank(query, candidates, top_k=top_k_select)
@@ -418,81 +415,117 @@ def rag_answer(
         "config": config,
     }
 
-
-# =============================================================================
-# SPRINT 3: SO SÁNH BASELINE VS VARIANT
-# =============================================================================
-
-def compare_retrieval_strategies(query: str) -> None:
+def build_context_block(chunks: List[Dict[str, Any]]) -> str:
     """
-    So sánh các retrieval strategies với cùng một query.
+    Đóng gói danh sách chunks thành context block để đưa vào prompt.
 
-    TODO Sprint 3:
-    Chạy hàm này để thấy sự khác biệt giữa dense, sparse, hybrid.
-    Dùng để justify tại sao chọn variant đó cho Sprint 3.
-
-    A/B Rule (từ slide): Chỉ đổi MỘT biến mỗi lần.
+    Format: structured snippets với source, section, score (từ slide).
+    Mỗi chunk có số thứ tự [1], [2], ... để model dễ trích dẫn.
     """
-    print(f"\n{'='*60}")
-    print(f"Query: {query}")
-    print('='*60)
+    context_parts = []
+    for i, chunk in enumerate(chunks, 1):
+        meta = chunk.get("metadata", {})
+        source = meta.get("source", "unknown")
+        section = meta.get("section", "")
+        score = chunk.get("score", 0)
+        text = chunk.get("text", "")
 
-    strategies = ["dense", "hybrid"]  # Thêm "sparse" sau khi implement
+        # TODO: Tùy chỉnh format nếu muốn (thêm effective_date, department, ...)
+        header = f"[{i}] {source}"
+        if section:
+            header += f" | {section}"
+        if score > 0:
+            header += f" | score={score:.2f}"
 
-    for strategy in strategies:
-        print(f"\n--- Strategy: {strategy} ---")
-        try:
-            result = rag_answer(query, retrieval_mode=strategy, verbose=False)
-            print(f"Answer: {result['answer']}")
-            print(f"Sources: {result['sources']}")
-        except NotImplementedError as e:
-            print(f"Chưa implement: {e}")
-        except Exception as e:
-            print(f"Lỗi: {e}")
+        context_parts.append(f"{header}\n{text}")
 
+    return "\n\n".join(context_parts)
 
-# =============================================================================
-# MAIN — Demo và Test
-# =============================================================================
+def build_grounded_prompt(query: str, context_block: str) -> str:
+    """
+    Xây dựng grounded prompt theo 4 quy tắc từ slide:
+    1. Evidence-only: Chỉ trả lời từ retrieved context
+    2. Abstain: Thiếu context thì nói không đủ dữ liệu
+    3. Citation: Gắn source/section khi có thể
+    4. Short, clear, stable: Output ngắn, rõ, nhất quán
 
-if __name__ == "__main__":
-    print("=" * 60)
-    print("Sprint 2 + 3: RAG Answer Pipeline")
-    print("=" * 60)
+    TODO Sprint 2:
+    Đây là prompt baseline. Trong Sprint 3, bạn có thể:
+    - Thêm hướng dẫn về format output (JSON, bullet points)
+    - Thêm ngôn ngữ phản hồi (tiếng Việt vs tiếng Anh)
+    - Điều chỉnh tone phù hợp với use case (CS helpdesk, IT support)
+    """
+    prompt = f"""Answer only from the retrieved context below.
+If the context is insufficient to answer the question, say you do not know and do not make up information.
+Cite the source field (in brackets like [1]) when possible.
+Keep your answer short, clear, and factual.
+Respond in the same language as the question.
+When the context contains a list item as part of a larger rule or exception, always include that surrounding context (e.g. "This is listed as an exception to X" or "According to section Y...") so the answer is not misleading.
 
-    # Test queries từ data/test_questions.json
-    test_queries = [
-        "SLA xử lý ticket P1 là bao lâu?",
-        "Khách hàng có thể yêu cầu hoàn tiền trong bao nhiêu ngày?",
-        "Ai phải phê duyệt để cấp quyền Level 3?",
-        "ERR-403-AUTH là lỗi gì?",  # Query không có trong docs → kiểm tra abstain
-    ]
+Question: {query}
 
-    print("\n--- Sprint 2: Test Baseline (Dense) ---")
-    for query in test_queries:
-        print(f"\nQuery: {query}")
-        try:
-            result = rag_answer(query, retrieval_mode="dense", verbose=True)
-            print(f"Answer: {result['answer']}")
-            print(f"Sources: {result['sources']}")
-        except NotImplementedError:
-            print("Chưa implement — hoàn thành TODO trong retrieve_dense() và call_llm() trước.")
-        except Exception as e:
-            print(f"Lỗi: {e}")
+Context:
+{context_block}
 
-    # Uncomment sau khi Sprint 3 hoàn thành:
-    # print("\n--- Sprint 3: So sánh strategies ---")
-    # compare_retrieval_strategies("Approval Matrix để cấp quyền là tài liệu nào?")
-    # compare_retrieval_strategies("ERR-403-AUTH")
+Answer:"""
+    return prompt
 
-    print("\n\nViệc cần làm Sprint 2:")
-    print("  1. Implement retrieve_dense() — query ChromaDB")
-    print("  2. Implement call_llm() — gọi OpenAI hoặc Gemini")
-    print("  3. Chạy rag_answer() với 3+ test queries")
-    print("  4. Verify: output có citation không? Câu không có docs → abstain không?")
+def call_llm(prompt: str) -> str:
+    """
+    Gọi LLM để sinh câu trả lời.
+
+    TODO Sprint 2:
+    Chọn một trong hai:
+
+    Option A — OpenAI (cần OPENAI_API_KEY):
+        from openai import OpenAI
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        response = client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,     # temperature=0 để output ổn định, dễ đánh giá
+            max_tokens=512,
+        )
+        return response.choices[0].message.content
+
+    Option B — Google Gemini (cần GOOGLE_API_KEY):
+        import google.generativeai as genai
+        genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        response = model.generate_content(prompt)
+        return response.text
+
+    Lưu ý: Dùng temperature=0 hoặc thấp để output ổn định cho evaluation.
+    """
+    openai_key = os.getenv("OPENAI_API_KEY")
+    google_key = os.getenv("GOOGLE_API_KEY")
+
+    if openai_key:
+        from openai import OpenAI
+
+        client = OpenAI(api_key=openai_key)
+        response = client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            max_tokens=512,
+        )
+        return (response.choices[0].message.content or "").strip()
+
+    if google_key:
+        import google.generativeai as genai
+
+        genai.configure(api_key=google_key)
+        model_name = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+        model = genai.GenerativeModel(model_name)
+        response = model.generate_content(prompt)
+        return (response.text or "").strip()
+
+    return "Không đủ dữ liệu để trả lời: chưa cấu hình API key cho LLM (OPENAI_API_KEY/GOOGLE_API_KEY)."
 
     print("\nViệc cần làm Sprint 3:")
     print("  1. Chọn 1 trong 3 variants: hybrid, rerank, hoặc query transformation")
     print("  2. Implement variant đó")
     print("  3. Chạy compare_retrieval_strategies() để thấy sự khác biệt")
     print("  4. Ghi lý do chọn biến đó vào docs/tuning-log.md")
+
