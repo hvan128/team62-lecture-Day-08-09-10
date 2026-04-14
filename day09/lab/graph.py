@@ -1,9 +1,15 @@
 """
-graph.py — Supervisor Orchestrator
+graph.py — Supervisor Orchestrator (LangGraph Implementation)
 Sprint 1: Implement AgentState, supervisor_node, route_decision và kết nối graph.
 
 Kiến trúc:
     Input → Supervisor → [retrieval_worker | policy_tool_worker | human_review] → synthesis → Output
+
+LangGraph Features Used:
+    - StateGraph: Automatic state management across nodes
+    - Conditional Edges: Dynamic routing based on supervisor decisions
+    - Type-safe State: TypedDict ensures consistent state structure
+    - Visual Graph: Can generate Mermaid diagrams of the workflow
 
 Chạy thử:
     python graph.py
@@ -12,10 +18,12 @@ Chạy thử:
 import json
 import os
 from datetime import datetime
-from typing import TypedDict, Literal, Optional
+from typing import TypedDict, Literal, Optional, Annotated
+from typing_extensions import TypedDict as TypedDictExt
 
-# Uncomment nếu dùng LangGraph:
-# from langgraph.graph import StateGraph, END
+# LangGraph imports
+from langgraph.graph import StateGraph, END
+from langgraph.graph.message import add_messages
 
 # ─────────────────────────────────────────────
 # 1. Shared State — dữ liệu đi xuyên toàn graph
@@ -84,41 +92,67 @@ def supervisor_node(state: AgentState) -> AgentState:
     2. Có cần MCP tool không
     3. Có risk cao cần HITL không
 
-    TODO Sprint 1: Implement routing logic dựa vào task keywords.
+    Routing logic dựa vào task keywords theo contracts.
     """
     task = state["task"].lower()
     state["history"].append(f"[supervisor] received task: {state['task'][:80]}")
 
-    # --- TODO: Implement routing logic ---
-    # Gợi ý:
-    # - "hoàn tiền", "refund", "flash sale", "license" → policy_tool_worker
-    # - "cấp quyền", "access level", "level 3", "emergency" → policy_tool_worker
-    # - "P1", "escalation", "sla", "ticket" → retrieval_worker
-    # - mã lỗi không rõ (ERR-XXX), không đủ context → human_review
-    # - còn lại → retrieval_worker
-
-    route = "retrieval_worker"         # TODO: thay bằng logic thực
-    route_reason = "default route"    # TODO: thay bằng lý do thực
+    # Default values
+    route = "retrieval_worker"
+    route_reason = ""
     needs_tool = False
     risk_high = False
 
-    # Ví dụ routing cơ bản — nhóm phát triển thêm:
-    policy_keywords = ["hoàn tiền", "refund", "flash sale", "license", "cấp quyền", "access", "level 3"]
-    risk_keywords = ["emergency", "khẩn cấp", "2am", "không rõ", "err-"]
+    # Define keyword groups
+    policy_keywords = [
+        "hoàn tiền", "refund", "flash sale", "license", 
+        "cấp quyền", "access", "level 2", "level 3", 
+        "digital product", "activated", "store credit"
+    ]
+    
+    sla_keywords = ["p1", "p2", "p3", "escalation", "sla", "ticket", "thông báo", "deadline"]
+    
+    risk_keywords = ["emergency", "khẩn cấp", "2am", "22:47", "không rõ"]
+    
+    error_code_pattern = "err-"
 
-    if any(kw in task for kw in policy_keywords):
-        route = "policy_tool_worker"
-        route_reason = f"task contains policy/access keyword"
-        needs_tool = True
-
-    if any(kw in task for kw in risk_keywords):
-        risk_high = True
-        route_reason += " | risk_high flagged"
-
-    # Human review override
-    if risk_high and "err-" in task:
+    # Priority 1: Check for error codes + risk → human review
+    if error_code_pattern in task and any(kw in task for kw in risk_keywords):
         route = "human_review"
-        route_reason = "unknown error code + risk_high → human review"
+        route_reason = "unknown error code with risk_high context → human review required"
+        risk_high = True
+    
+    # Priority 2: Policy/access control questions → policy_tool_worker
+    elif any(kw in task for kw in policy_keywords):
+        route = "policy_tool_worker"
+        matched_keywords = [kw for kw in policy_keywords if kw in task]
+        route_reason = f"task contains policy/access keywords: {', '.join(matched_keywords[:2])}"
+        needs_tool = True
+        
+        # Check if also high risk
+        if any(kw in task for kw in risk_keywords):
+            risk_high = True
+            route_reason += " | risk_high: emergency context detected"
+    
+    # Priority 3: SLA/ticket questions → retrieval_worker (high priority)
+    elif any(kw in task for kw in sla_keywords):
+        route = "retrieval_worker"
+        matched_keywords = [kw for kw in sla_keywords if kw in task]
+        route_reason = f"task contains SLA/ticket keywords: {', '.join(matched_keywords[:2])}"
+        
+        # Check if also high risk
+        if any(kw in task for kw in risk_keywords):
+            risk_high = True
+            route_reason += " | risk_high: time-sensitive SLA query"
+    
+    # Priority 4: Default → retrieval_worker
+    else:
+        route = "retrieval_worker"
+        route_reason = "default route: general knowledge retrieval"
+
+    # Ensure route_reason is never empty
+    if not route_reason:
+        route_reason = f"routed to {route} based on task analysis"
 
     state["supervisor_route"] = route
     state["route_reason"] = route_reason
@@ -164,8 +198,8 @@ def human_review_node(state: AgentState) -> AgentState:
     print(f"   Reason: {state['route_reason']}")
     print(f"   Action: Auto-approving in lab mode (set hitl_triggered=True)\n")
 
-    # Sau khi human approve, route về retrieval để lấy evidence
-    state["supervisor_route"] = "retrieval_worker"
+    # Sau khi human approve, gọi retrieval để lấy evidence
+    state = retrieval_worker_node(state)
     state["route_reason"] += " | human approved → retrieval"
 
     return state
@@ -202,6 +236,10 @@ def policy_tool_worker_node(state: AgentState) -> AgentState:
     state["workers_called"].append("policy_tool_worker")
     state["history"].append("[policy_tool_worker] called")
 
+    # Policy worker may need retrieval context first
+    if not state["retrieved_chunks"]:
+        state = retrieval_worker_node(state)
+
     # Placeholder output
     state["policy_result"] = {
         "policy_applies": True,
@@ -235,46 +273,48 @@ def synthesis_worker_node(state: AgentState) -> AgentState:
 
 def build_graph():
     """
-    Xây dựng graph với supervisor-worker pattern.
-
-    Option A (đơn giản — Python thuần): Dùng if/else, không cần LangGraph.
-    Option B (nâng cao): Dùng LangGraph StateGraph với conditional edges.
-
-    Lab này implement Option A theo mặc định.
-    TODO Sprint 1: Có thể chuyển sang LangGraph nếu muốn.
+    Xây dựng graph với supervisor-worker pattern sử dụng LangGraph.
+    
+    Graph flow:
+    START → supervisor → route_decision → [retrieval_worker | policy_tool_worker | human_review]
+                                       → synthesis → END
     """
-    # Option A: Simple Python orchestrator
-    def run(state: AgentState) -> AgentState:
-        import time
-        start = time.time()
-
-        # Step 1: Supervisor decides route
-        state = supervisor_node(state)
-
-        # Step 2: Route to appropriate worker
-        route = route_decision(state)
-
-        if route == "human_review":
-            state = human_review_node(state)
-            # After human approval, continue with retrieval
-            state = retrieval_worker_node(state)
-        elif route == "policy_tool_worker":
-            state = policy_tool_worker_node(state)
-            # Policy worker may need retrieval context first
-            if not state["retrieved_chunks"]:
-                state = retrieval_worker_node(state)
-        else:
-            # Default: retrieval_worker
-            state = retrieval_worker_node(state)
-
-        # Step 3: Always synthesize
-        state = synthesis_worker_node(state)
-
-        state["latency_ms"] = int((time.time() - start) * 1000)
-        state["history"].append(f"[graph] completed in {state['latency_ms']}ms")
-        return state
-
-    return run
+    # Create StateGraph with AgentState
+    workflow = StateGraph(AgentState)
+    
+    # Add nodes
+    workflow.add_node("supervisor", supervisor_node)
+    workflow.add_node("retrieval_worker", retrieval_worker_node)
+    workflow.add_node("policy_tool_worker", policy_tool_worker_node)
+    workflow.add_node("human_review", human_review_node)
+    workflow.add_node("synthesis", synthesis_worker_node)
+    
+    # Set entry point
+    workflow.set_entry_point("supervisor")
+    
+    # Add conditional edges from supervisor
+    workflow.add_conditional_edges(
+        "supervisor",
+        route_decision,
+        {
+            "retrieval_worker": "retrieval_worker",
+            "policy_tool_worker": "policy_tool_worker",
+            "human_review": "human_review",
+        }
+    )
+    
+    # Add edges from workers to synthesis
+    workflow.add_edge("retrieval_worker", "synthesis")
+    workflow.add_edge("policy_tool_worker", "synthesis")
+    workflow.add_edge("human_review", "synthesis")
+    
+    # Add edge from synthesis to END
+    workflow.add_edge("synthesis", END)
+    
+    # Compile the graph
+    app = workflow.compile()
+    
+    return app
 
 
 # ─────────────────────────────────────────────
@@ -294,8 +334,16 @@ def run_graph(task: str) -> AgentState:
     Returns:
         AgentState với final_answer, trace, routing info, v.v.
     """
+    import time
+    start = time.time()
+    
     state = make_initial_state(task)
-    result = _graph(state)
+    result = _graph.invoke(state)
+    
+    # Add latency
+    result["latency_ms"] = int((time.time() - start) * 1000)
+    result["history"].append(f"[graph] completed in {result['latency_ms']}ms")
+    
     return result
 
 
@@ -308,19 +356,53 @@ def save_trace(state: AgentState, output_dir: str = "./artifacts/traces") -> str
     return filename
 
 
+def visualize_graph(output_path: str = "./artifacts/graph_visualization.png"):
+    """
+    Visualize the LangGraph structure.
+    Generates Mermaid diagram text that can be rendered.
+    """
+    try:
+        # Try to get Mermaid PNG
+        try:
+            graph_image = _graph.get_graph().draw_mermaid_png()
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            with open(output_path, "wb") as f:
+                f.write(graph_image)
+            print(f"✅ Graph visualization saved to {output_path}")
+            return output_path
+        except:
+            # Fallback: Generate Mermaid text
+            mermaid_text = _graph.get_graph().draw_mermaid()
+            mermaid_path = output_path.replace('.png', '.mmd')
+            os.makedirs(os.path.dirname(mermaid_path), exist_ok=True)
+            with open(mermaid_path, "w", encoding="utf-8") as f:
+                f.write(mermaid_text)
+            print(f"✅ Graph Mermaid diagram saved to {mermaid_path}")
+            print(f"   View at: https://mermaid.live/ or use Mermaid CLI")
+            return mermaid_path
+    except Exception as e:
+        print(f"⚠️  Could not generate graph visualization: {e}")
+        return None
+
+
 # ─────────────────────────────────────────────
 # 8. Manual Test
 # ─────────────────────────────────────────────
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("Day 09 Lab — Supervisor-Worker Graph")
+    print("Day 09 Lab — Supervisor-Worker Graph (LangGraph)")
     print("=" * 60)
+
+    # Optional: Visualize graph structure
+    print("\n📊 Generating graph visualization...")
+    visualize_graph()
 
     test_queries = [
         "SLA xử lý ticket P1 là bao lâu?",
         "Khách hàng Flash Sale yêu cầu hoàn tiền vì sản phẩm lỗi — được không?",
         "Cần cấp quyền Level 3 để khắc phục P1 khẩn cấp. Quy trình là gì?",
+        "Hệ thống báo lỗi ERR-9999 không rõ nguyên nhân, khẩn cấp cần xử lý",
     ]
 
     for query in test_queries:
@@ -337,4 +419,6 @@ if __name__ == "__main__":
         trace_file = save_trace(result)
         print(f"  Trace saved → {trace_file}")
 
-    print("\n✅ graph.py test complete. Implement TODO sections in Sprint 1 & 2.")
+    print("\n✅ graph.py test complete.")
+    print("✅ LangGraph implementation with StateGraph and conditional edges.")
+    print("   Features: Automatic state management, visual graph, conditional routing.")
