@@ -81,6 +81,46 @@ def _get_collection():
     return collection
 
 
+# === Sprint 2: Implement run(state) ===
+def run(state: dict) -> dict:
+    """
+    Nhận query từ state, gọi ChromaDB, trả về chunks, ghi log.
+    Input: state["task"] (str)
+    Output: state["retrieved_chunks"], state["retrieved_sources"], state["worker_io_log"]
+    """
+    import time
+    log = {"input": dict(state), "output": None, "error": None, "ts": time.time()}
+    try:
+        task = state.get("task", "")
+        top_k = state.get("top_k", DEFAULT_TOP_K)
+        if not task:
+            raise ValueError("Missing 'task' in state")
+        embed = _get_embedding_fn()
+        collection = _get_collection()
+        query_emb = embed(task)
+        results = collection.query(query_embeddings=[query_emb], n_results=top_k, include=["documents", "metadatas", "distances"])
+        chunks = []
+        sources = set()
+        for doc, meta, dist in zip(results["documents"][0], results["metadatas"][0], results["distances"][0]):
+            chunk = {
+                "text": doc,
+                "source": meta.get("source", "unknown") if meta else "unknown",
+                "score": 1.0 - dist if dist is not None else 0.0,
+                "metadata": meta or {},
+            }
+            chunks.append(chunk)
+            sources.add(chunk["source"])
+        state["retrieved_chunks"] = chunks
+        state["retrieved_sources"] = list(sources)
+        log["output"] = {"retrieved_chunks": chunks, "retrieved_sources": list(sources)}
+    except Exception as e:
+        log["error"] = str(e)
+        state["retrieved_chunks"] = []
+        state["retrieved_sources"] = []
+    state["worker_io_log"] = log
+    return state
+
+
 def retrieve_dense(query: str, top_k: int = DEFAULT_TOP_K) -> list:
     """
     Dense retrieval: embed query → query ChromaDB → trả về top_k chunks.
