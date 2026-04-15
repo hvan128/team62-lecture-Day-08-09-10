@@ -2,12 +2,13 @@
 
 **Tên nhóm:** Team 62  
 **Thành viên:**
-| Tên | Vai trò (Day 10) | Email |
-|-----|------------------|-------|
-| Đỗ Minh Khiêm | Cleaning & Quality Owner | 22028092@vnu.edu.vn |
-| Ngô Hải Vân | Ingestion / Raw Owner | 22028149@vnu.edu.vn |
-| Phan Thanh Sang | Embed & Idempotency Owner | 22028135@vnu.edu.vn |
-| Trần Đình Minh Vương | Monitoring / Docs Owner | 22028154@vnu.edu.vn |
+| # | Tên | Vai trò (Day 10) | Email |
+|---|-----|------------------|-------|
+| 1 | Phan Thanh Sang | Ingestion Owner | |
+| 2 | Đỗ Minh Khiêm | Cleaning / Quality Owner | |
+| 3 | Trần Tiến Dũng | Embed Owner | |
+| 4 | Ngô Hải Vân | Inject & Evidence Owner | |
+| 5 | Trần Đình Minh Vương | Monitoring / Docs Owner | |
 
 **Ngày nộp:** 2026-04-15  
 **Repo:** https://github.com/hvan128/team62-lecture-Day-08-09-10  
