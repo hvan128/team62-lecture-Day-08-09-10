@@ -7,7 +7,7 @@
 | 1 | Phan Thanh Sang | Ingestion Owner | |
 | 2 | Đỗ Minh Khiêm | Cleaning / Quality Owner | |
 | 3 | Trần Tiến Dũng | Embed Owner | |
-| 4 | Ngô Hải Vân | Inject & Evidence Owner | |
+| 4 | Ngô Hải Văn | Inject & Evidence Owner | |
 | 5 | Trần Đình Minh Vương | Monitoring / Docs Owner | |
 
 **Ngày nộp:** 2026-04-15  
@@ -24,7 +24,7 @@
 
 ## 1. Pipeline tổng quan (150–200 từ)
 
-**Nguồn raw:** CSV mẫu `data/raw/policy_export_dirty.csv` mô phỏng export từ policy management system. File chứa 13 records (sau khi Vân inject thêm) với các failure mode: duplicate, missing effective_date, stale HR version (10 ngày phép năm), stale refund window (14 ngày), missing exported_at, và BOM characters.
+**Nguồn raw:** CSV mẫu `data/raw/policy_export_dirty.csv` mô phỏng export từ policy management system. File chứa 13 records (sau khi Văn inject thêm) với các failure mode: duplicate, missing effective_date, stale HR version (10 ngày phép năm), stale refund window (14 ngày), missing exported_at, và BOM characters.
 
 **Tóm tắt luồng:**
 1. **Ingest:** Load raw CSV → 13 records (10 baseline + 3 inject test)
