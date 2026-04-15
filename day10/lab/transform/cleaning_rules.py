@@ -36,6 +36,16 @@ def _stable_chunk_id(doc_id: str, chunk_text: str, seq: int) -> str:
     return f"{doc_id}_{seq}_{h}"
 
 
+def _strip_bom(s: str) -> Tuple[str, bool]:
+    """
+    Strip BOM (\ufeff) từ đầu text.
+    Trả về (cleaned_text, had_bom).
+    """
+    if s and s[0] == "\ufeff":
+        return s[1:], True
+    return s, False
+
+
 def _normalize_effective_date(raw: str) -> Tuple[str, str]:
     """
     Trả về (iso_date, error_reason).
@@ -77,11 +87,17 @@ def clean_rows(
     4) Quarantine: chunk_text rỗng hoặc effective_date rỗng sau chuẩn hoá.
     5) Loại trùng nội dung chunk_text (giữ bản đầu).
     6) Fix stale refund: policy_refund_v4 chứa '14 ngày làm việc' → 7 ngày.
+
+    Khiêm thêm (Sprint 2):
+    7) Quarantine: chunk_text quá ngắn (< 20 ký tự) → short_chunk (metricimpact: giảm cleaned_records).
+    8) Quarantine: exported_at rỗng → missing_exported_at (metric: #quarantine ↑).
+    9) Normalize: strip BOM (\ufeff) từ đầu chunk_text → bom_stripped (metric: #normalized rows).
     """
     quarantine: List[Dict[str, Any]] = []
     seen_text: set[str] = set()
     cleaned: List[Dict[str, Any]] = []
     seq = 0
+    bom_count = 0  # Track số dòng bị strip BOM
 
     for raw in rows:
         doc_id = raw.get("doc_id", "")
@@ -114,6 +130,29 @@ def clean_rows(
         if not text:
             quarantine.append({**raw, "reason": "missing_chunk_text"})
             continue
+
+        # Rule 7 (Khiêm): Quarantine chunk quá ngắn (< 20 ký tự).
+        # Tác động: Các chunk nhỏ không đủ context → loại bỏ từ embedding.
+        # Metric: Track số lượng short_chunk quarantined.
+        if len(text.strip()) < 20:
+            quarantine.append({**raw, "reason": "short_chunk", "chunk_length": len(text.strip())})
+            continue
+
+        # Rule 8 (Khiêm): Quarantine exported_at rỗng.
+        # Tác động: Không biết khi nào dữ liệu được export → dùng cho freshness check / SLA.
+        # Metric: Track số lượng missing_exported_at.
+        if not exported_at:
+            quarantine.append({**raw, "reason": "missing_exported_at"})
+            continue
+
+        # Rule 9 (Khiêm): Strip BOM (\ufeff) từ đầu chunk_text.
+        # Tác động: BOM có thể gây lỗi text matching / embedding. Normalize trước dedupe.
+        # Metric: Track số dòng bị fix BOM.
+        text_cleaned, had_bom = _strip_bom(text)
+        if had_bom:
+            bom_count += 1
+            text = text_cleaned
+            raw = {**raw, "chunk_text": text}  # Cập nhật raw để log
 
         key = _norm_text(text)
         if key in seen_text:
