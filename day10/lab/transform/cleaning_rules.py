@@ -76,9 +76,11 @@ def clean_rows(
     rows: List[Dict[str, str]],
     *,
     apply_refund_window_fix: bool = True,
-) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, int]]:
     """
-    Trả về (cleaned, quarantine).
+    Trả về (cleaned, quarantine, stats).
+
+    stats: dict gồm các metric bổ sung (vd: bom_stripped).
 
     Baseline (mở rộng theo narrative Day 10):
     1) Quarantine: doc_id không thuộc allowlist (export lạ / catalog sai).
@@ -180,7 +182,7 @@ def clean_rows(
             }
         )
 
-    return cleaned, quarantine
+    return cleaned, quarantine, {"bom_stripped": bom_count}
 
 
 def write_cleaned_csv(path: Path, rows: List[Dict[str, Any]]) -> None:

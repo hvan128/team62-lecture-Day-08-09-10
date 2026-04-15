@@ -66,7 +66,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     log(f"run_id={run_id}")
     log(f"raw_records={raw_count}")
 
-    cleaned, quarantine = clean_rows(
+    cleaned, quarantine, clean_stats = clean_rows(
         rows,
         apply_refund_window_fix=not args.no_refund_fix,
     )
@@ -77,6 +77,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     log(f"cleaned_records={len(cleaned)}")
     log(f"quarantine_records={len(quarantine)}")
+    log(f"cleaning_bom_stripped={clean_stats.get('bom_stripped', 0)}")
     log(f"cleaned_csv={cleaned_path.relative_to(ROOT)}")
     log(f"quarantine_csv={quar_path.relative_to(ROOT)}")
 
